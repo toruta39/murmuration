@@ -26,7 +26,7 @@ for (let i = 0; i < 10; i++) {
   f.addStarling();
 }
 
-// scene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 32), new THREE.MeshPhongMaterial()));
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 32), new THREE.MeshPhongMaterial()));
 const l = new THREE.DirectionalLight(0xffffff);
 l.position.y = 10000;
 l.position.z = 100;
