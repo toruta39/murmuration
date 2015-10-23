@@ -1,5 +1,8 @@
 import THREE from 'three';
 
+// This function is not performant at all.
+// So is it really necessary to use points in your use case?
+
 export default function sortPoints(points, camera) {
   var vector = new THREE.Vector3();
 

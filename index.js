@@ -1,12 +1,16 @@
-import THREE from 'three';
-import sortPoints from './sortPoints';
-
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 10000);
-camera.position.z = 1000;
+camera.position.z = 1500;
 
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x428ED0, 0.2);
+
+window.onresize = function() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
 
 renderer.domElement.style.position = 'fixed';
 renderer.domElement.style.left = '0px';
@@ -18,26 +22,22 @@ import Flock from './Flock';
 
 const f = new Flock();
 
-f.scale.x = 3;
-f.scale.y = 3;
-f.scale.z = 3;
+const sunlight = new THREE.DirectionalLight(new THREE.Color(0x428ED0).lerp(new THREE.Color(0xffffff), 0.2));
+sunlight.position.x = 1;
+sunlight.position.y = 1;
+sunlight.position.z = 1;
 
-for (let i = 0; i < 10; i++) {
-  f.addStarling();
-}
+const backlight = new THREE.DirectionalLight(0x428ED0, 0.3);
+backlight.position.x = -1;
+backlight.position.y = -1;
+backlight.position.z = -1;
 
-scene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 32), new THREE.MeshPhongMaterial()));
-const l = new THREE.DirectionalLight(0xffffff);
-l.position.y = 10000;
-l.position.z = 100;
-
-scene.add(l);
+scene.add(sunlight);
+scene.add(backlight);
 scene.add(f);
 
 function render() {
-  sortPoints(f.children[0], camera);
-  f.rotation.x += 0.01;
-  f.rotation.y += 0.01;
+  f.update();
   renderer.render(scene, camera);
   requestAnimationFrame(render);
 }
