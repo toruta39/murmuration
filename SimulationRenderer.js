@@ -1,127 +1,138 @@
 import THREE from 'THREE';
 
-/**
- * @author zz85 https://github.com/zz85 / http://www.lab4games.net/zz85/blog
- *
- * Bird Simulation Render
- *
- *  A simple scene rendering a quad of the following shaders
- *  1. Pass-thru Shader,
- *  2. Bird Position Update Shader,
- *  3. Bird Velocity Update Shader
- *
- */
+const WIDTH = 64;
+const BOUNDS = 400;
 
-export default function SimulationRenderer( WIDTH, renderer, PARTICLES, BOUNDS, BOUNDS_HALF ) {
+export default class SimulationRenderer {
+  constructor(renderer) {
+    this.renderer = renderer;
+    this.flipflop = true;
 
-  WIDTH = WIDTH || 4;
-  var camera = new THREE.Camera();
-  camera.position.z = 1;
+    this.camera = new THREE.Camera();
+    this.camera.position.z = 1;
 
-  // Init RTT stuff
-  var gl = renderer.getContext();
+    this.scene = new THREE.Scene();
 
-  if ( ! gl.getExtension( "OES_texture_float" ) ) {
+    this.uniforms = {
+      time: { type: "f", value: 1.0 },
+      resolution: { type: "v2", value: new THREE.Vector2(WIDTH, WIDTH) },
+      texture: { type: "t", value: null }
+    };
 
-    alert( "No OES_texture_float support for float textures!" );
-    return;
+    this.passThroughShader = new THREE.ShaderMaterial({
+      uniforms: this.uniforms,
+      vertexShader: `
+        void main() {
+          gl_Position = vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec2 resolution;
+        uniform float time;
+        uniform sampler2D texture;
 
+        void main() {
+          vec2 uv = gl_FragCoord.xy / resolution.xy;
+          vec3 color = texture2D(texture, uv).xyz;
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `
+    });
+
+    this.mesh = new THREE.Mesh(new THREE.PlaneBufferGeometry(2, 2), this.passThroughShader);
+    this.scene.add(this.mesh);
+
+    // var positionShader = new THREE.ShaderMaterial({
+
+    //   uniforms: {
+    //     time: { type: "f", value: 1.0 },
+    //     delta: { type: "f", value: 0.0 },
+    //     resolution: { type: "v2", value: new THREE.Vector2(WIDTH, WIDTH) },
+    //     texturePosition: { type: "t", value: null },
+    //     textureVelocity: { type: "t", value: null },
+    //   },
+    //   vertexShader: document.getElementById('vertexShader').textContent,
+    //   fragmentShader: document.getElementById('fragmentShaderPosition').textContent
+
+    // });
+
+    // this.positionShader = positionShader;
+
+    // var velocityShader = new THREE.ShaderMaterial({
+
+    //   uniforms: {
+    //     time: { type: "f", value: 1.0 },
+    //     delta: { type: "f", value: 0.0 },
+    //     resolution: { type: "v2", value: new THREE.Vector2(WIDTH, WIDTH) },
+    //     texturePosition: { type: "t", value: null },
+    //     textureVelocity: { type: "t", value: null },
+    //     testing: { type: "f", value: 1.0 },
+    //     seperationDistance: { type: "f", value: 1.0 },
+    //     alignmentDistance: { type: "f", value: 1.0 },
+    //     cohesionDistance: { type: "f", value: 1.0 },
+    //     freedomFactor: { type: "f", value: 1.0 },
+    //     predator: { type: "v3", value: new THREE.Vector3() }
+    //   },
+    //   defines: {
+    //     WIDTH: WIDTH.toFixed(2)
+    //   },
+    //   vertexShader: document.getElementById('vertexShader').textContent,
+    //   fragmentShader: document.getElementById('fragmentShaderVelocity').textContent
+
+    // });
+
+    // this.velocityUniforms = velocityShader.uniforms;
+
+    // this.renderPosition = function(position, velocity, output, delta) {
+
+    //   this.mesh.material = positionShader;
+    //   positionShader.uniforms.texturePosition.value = position;
+    //   positionShader.uniforms.textureVelocity.value = velocity;
+    //   positionShader.uniforms.time.value = performance.now();
+    //   positionShader.uniforms.delta.value = delta;
+    //   renderer.render(scene, camera, output);
+    //   this.currentPosition = output;
+
+    // };
+
+    // this.renderVelocity = function(position, velocity, output, delta) {
+
+    //   this.mesh.material = velocityShader;
+    //   velocityShader.uniforms.texturePosition.value = position;
+    //   velocityShader.uniforms.textureVelocity.value = velocity;
+    //   velocityShader.uniforms.time.value = performance.now();
+    //   velocityShader.uniforms.delta.value = delta;
+    //   renderer.render(scene, camera, output);
+    //   this.currentVelocity = output;
+
+    // };
   }
 
-  if ( gl.getParameter( gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS ) == 0 ) {
+  init() {
+    var dtPosition = this.generatePositionTexture(WIDTH * WIDTH);
+    var dtVelocity = this.generateVelocityTexture(WIDTH * WIDTH);
 
-    alert( "No support for vertex shader textures!" );
-    return;
+    this.rtPosition1 = this.getRenderTarget(THREE.RGBAFormat);
+    this.rtPosition2 = this.rtPosition1.clone();
+    this.renderTexture(dtPosition, this.rtPosition1);
+    this.renderTexture(this.rtPosition1, this.rtPosition2);
 
+    this.rtVelocity1 = this.getRenderTarget(THREE.RGBFormat);
+    this.rtVelocity2 = this.rtVelocity1.clone();
+    this.renderTexture(dtVelocity, this.rtVelocity1);
+    this.renderTexture(this.rtVelocity1, this.rtVelocity2);
+
+    // this.velocityUniforms.testing.value = 10;
   }
 
-  var scene = new THREE.Scene();
-
-  var uniforms = {
-    time: { type: "f", value: 1.0 },
-    resolution: { type: "v2", value: new THREE.Vector2( WIDTH, WIDTH ) },
-    texture: { type: "t", value: null }
+  renderTexture(input, output) {
+    this.mesh.material = this.passThroughShader;
+    this.uniforms.texture.value = input;
+    this.renderer.render(this.scene, this.camera, output);
   };
 
-  var passThruShader = new THREE.ShaderMaterial( {
-    uniforms: uniforms,
-    vertexShader: document.getElementById( 'vertexShader' ).textContent,
-    fragmentShader: document.getElementById( 'fragmentShader' ).textContent
-  } );
-
-  var mesh = new THREE.Mesh( new THREE.PlaneBufferGeometry( 2, 2 ), passThruShader );
-
-  var positionShader = new THREE.ShaderMaterial( {
-
-    uniforms: {
-      time: { type: "f", value: 1.0 },
-      delta: { type: "f", value: 0.0 },
-      resolution: { type: "v2", value: new THREE.Vector2( WIDTH, WIDTH ) },
-      texturePosition: { type: "t", value: null },
-      textureVelocity: { type: "t", value: null },
-    },
-    vertexShader: document.getElementById( 'vertexShader' ).textContent,
-    fragmentShader: document.getElementById( 'fragmentShaderPosition' ).textContent
-
-  } );
-
-  this.positionShader = positionShader;
-
-  var velocityShader = new THREE.ShaderMaterial( {
-
-    uniforms: {
-      time: { type: "f", value: 1.0 },
-      delta: { type: "f", value: 0.0 },
-      resolution: { type: "v2", value: new THREE.Vector2( WIDTH, WIDTH ) },
-      texturePosition: { type: "t", value: null },
-      textureVelocity: { type: "t", value: null },
-      testing: { type: "f", value: 1.0 },
-      seperationDistance: { type: "f", value: 1.0 },
-      alignmentDistance: { type: "f", value: 1.0 },
-      cohesionDistance: { type: "f", value: 1.0 },
-      freedomFactor: { type: "f", value: 1.0 },
-      predator: { type: "v3", value: new THREE.Vector3() }
-    },
-    defines: {
-      WIDTH: WIDTH.toFixed( 2 )
-    },
-    vertexShader: document.getElementById( 'vertexShader' ).textContent,
-    fragmentShader: document.getElementById( 'fragmentShaderVelocity' ).textContent
-
-  } );
-
-  this.velocityUniforms = velocityShader.uniforms;
-
-  scene.add( mesh );
-
-  var flipflop = true;
-  var rtPosition1, rtPosition2, rtVelocity1, rtVelocity2;
-
-  function init() {
-
-    var dtPosition = generatePositionTexture();
-    var dtVelocity = generateVelocityTexture();
-
-    rtPosition1 = getRenderTarget( THREE.RGBAFormat );
-    rtPosition2 = rtPosition1.clone();
-    rtVelocity1 = getRenderTarget( THREE.RGBFormat );
-    rtVelocity2 = rtVelocity1.clone();
-
-    this.renderTexture( dtPosition, rtPosition1 );
-    this.renderTexture( rtPosition1, rtPosition2 );
-
-    this.renderTexture( dtVelocity, rtVelocity1 );
-    this.renderTexture( rtVelocity1, rtVelocity2 );
-
-    this.velocityUniforms.testing.value = 10;
-
-  }
-
-  this.init = init;
-
-  function getRenderTarget( type ) {
-
-    var renderTarget = new THREE.WebGLRenderTarget( WIDTH, WIDTH, {
+  getRenderTarget(type) {
+    var renderTarget = new THREE.WebGLRenderTarget(WIDTH, WIDTH, {
       wrapS: THREE.RepeatWrapping,
       wrapT: THREE.RepeatWrapping,
       minFilter: THREE.NearestFilter,
@@ -129,109 +140,59 @@ export default function SimulationRenderer( WIDTH, renderer, PARTICLES, BOUNDS, 
       format: type,
       type: THREE.FloatType,
       stencilBuffer: false
-    } );
+    });
 
     return renderTarget;
-
   }
 
-  // Takes a texture, and render out as another texture
-  this.renderTexture = function ( input, output ) {
-
-    mesh.material = passThruShader;
-    uniforms.texture.value = input;
-    renderer.render( scene, camera, output );
-
-  };
-
-
-  this.renderPosition = function( position, velocity, output, delta ) {
-
-    mesh.material = positionShader;
-    positionShader.uniforms.texturePosition.value = position;
-    positionShader.uniforms.textureVelocity.value = velocity;
-    positionShader.uniforms.time.value = performance.now();
-    positionShader.uniforms.delta.value = delta;
-    renderer.render( scene, camera, output );
-    this.currentPosition = output;
-
-  };
-
-  this.renderVelocity = function( position, velocity, output, delta ) {
-
-    mesh.material = velocityShader;
-    velocityShader.uniforms.texturePosition.value = position;
-    velocityShader.uniforms.textureVelocity.value = velocity;
-    velocityShader.uniforms.time.value = performance.now();
-    velocityShader.uniforms.delta.value = delta;
-    renderer.render( scene, camera, output );
-    this.currentVelocity = output;
-
-  };
-
-  this.simulate = function( delta ) {
-
-    if ( flipflop ) {
-
-      this.renderVelocity( rtPosition1, rtVelocity1, rtVelocity2, delta );
-      this.renderPosition( rtPosition1, rtVelocity2, rtPosition2, delta );
-
+  simulate(delta) {
+    if (this.flipflop) {
+      this.renderVelocity(this.rtPosition1, this.rtVelocity1, this.rtVelocity2, delta);
+      this.renderPosition(this.rtPosition1, this.rtVelocity2, this.rtPosition2, delta);
     } else {
-
-      this.renderVelocity( rtPosition2, rtVelocity2, rtVelocity1, delta );
-      this.renderPosition( rtPosition2, rtVelocity1, rtPosition1, delta );
-
+      this.renderVelocity(this.rtPosition2, this.rtVelocity2, this.rtVelocity1, delta);
+      this.renderPosition(this.rtPosition2, this.rtVelocity1, this.rtPosition1, delta);
     }
 
-    flipflop = ! flipflop;
-
+    this.flipflop = ! this.flipflop;
   };
 
-  function generatePositionTexture() {
+  generatePositionTexture(length) {
+    var buffer = new Float32Array(length * 4);
 
-    var a = new Float32Array( PARTICLES * 4 );
+    for (var k = 0, kl = buffer.length; k < kl; k += 4) {
+      var x = (Math.random() - 0.5) * 2 * BOUNDS;
+      var y = (Math.random() - 0.5) * 2 * BOUNDS;
+      var z = (Math.random() - 0.5) * 2 * BOUNDS;
 
-    for ( var k = 0, kl = a.length; k < kl; k += 4 ) {
-
-      var x = Math.random() * BOUNDS - BOUNDS_HALF;
-      var y = Math.random() * BOUNDS - BOUNDS_HALF;
-      var z = Math.random() * BOUNDS - BOUNDS_HALF;
-
-      a[ k + 0 ] = x;
-      a[ k + 1 ] = y;
-      a[ k + 2 ] = z;
-      a[ k + 3 ] = 1;
-
+      buffer[ k + 0 ] = x;
+      buffer[ k + 1 ] = y;
+      buffer[ k + 2 ] = z;
+      buffer[ k + 3 ] = 1;
     }
 
-    var texture = new THREE.DataTexture( a, WIDTH, WIDTH, THREE.RGBAFormat, THREE.FloatType );
+    var texture = new THREE.DataTexture(buffer, WIDTH, WIDTH, THREE.RGBAFormat, THREE.FloatType);
     texture.needsUpdate = true;
 
     return texture;
-
   }
 
-  function generateVelocityTexture() {
+  generateVelocityTexture(length) {
+    var buffer = new Float32Array(length * 3);
 
-    var a = new Float32Array( PARTICLES * 3 );
-
-    for ( var k = 0, kl = a.length; k < kl; k += 3 ) {
-
+    for (var k = 0, kl = buffer.length; k < kl; k += 3) {
       var x = Math.random() - 0.5;
       var y = Math.random() - 0.5;
       var z = Math.random() - 0.5;
 
-      a[ k + 0 ] = x * 10;
-      a[ k + 1 ] = y * 10;
-      a[ k + 2 ] = z * 10;
-
+      buffer[ k + 0 ] = x * 10;
+      buffer[ k + 1 ] = y * 10;
+      buffer[ k + 2 ] = z * 10;
     }
 
-    var texture = new THREE.DataTexture( a, WIDTH, WIDTH, THREE.RGBFormat, THREE.FloatType );
+    var texture = new THREE.DataTexture(buffer, WIDTH, WIDTH, THREE.RGBFormat, THREE.FloatType);
     texture.needsUpdate = true;
 
     return texture;
-
   }
-
 }
